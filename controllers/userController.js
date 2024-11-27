@@ -32,11 +32,27 @@ exports.createUser = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const dbResponse = await userCollection.get();
+    // Fetch all users
+    const userResponse = await userCollection.get();
+    const userDocs = userResponse.docs;
 
-    let responseArray = [];
-    dbResponse.forEach((element) => {
-      responseArray.push(element.data());
+    // Fetch all scores
+    const scoresResponse = await db.collection("scores").get();
+    const scoresMap = {};
+    scoresResponse.forEach((doc) => {
+      scoresMap[doc.id] = doc.data().score || 0;
+    });
+
+    // Combine users with scores
+    const responseArray = userDocs.map((userDoc) => {
+      const userData = userDoc.data();
+      const userId = userDoc.id; // user ID is the doc ID
+      const { password, ...safeUserData } = userData 
+      return {
+        id: userId,
+        ...safeUserData,
+        score: scoresMap[userId] || 0, // Default to 0 if no score for the said user exists
+      };
     });
 
     res.status(200).send(responseArray);
@@ -47,12 +63,24 @@ exports.getAllUsers = async (req, res) => {
 
 exports.getUsersbyID = async (req, res) => {
   const { id } = req.params;
+
   try {
-    const doc = await userCollection.doc(id).get();
-    if (!doc.exists) {
+    // Fetch user by ID
+    const userDoc = await userCollection.doc(id).get();
+
+    if (!userDoc.exists) {
       return res.status(404).send({ message: "User not found" });
     }
-    res.status(200).send({ id: doc.id, ...doc.data() });
+
+    const userData = userDoc.data();
+    const { password, ...safeUserData } = userData 
+
+    // Fetch the score for the user
+    const scoreDoc = await db.collection("scores").doc(id).get();
+    const score = scoreDoc.exists ? scoreDoc.data().score || 0 : 0;
+
+    // Return combined data
+    res.status(200).send({ id, ...safeUserData, score });
   } catch (error) {
     res.status(500).send({ message: "Error fetching user", error });
   }
