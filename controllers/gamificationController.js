@@ -151,4 +151,113 @@ exports.addAchievement = async (req, res) => {
     }
 };
 
+exports.getLeaderboard = async (req, res) => {
+    try {
+      // Fetch all users
+      const userResponse = await userCollection.get();
+      const userDocs = userResponse.docs;
+  
+      // Fetch all scores
+      const scoresResponse = await db.collection("scores").get();
+      const scoresMap = {};
+      scoresResponse.forEach((doc) => {
+        scoresMap[doc.id] = doc.data().score || 0;
+      });
+  
+      // Combine users with scores and sort by score in descending order
+      const leaderboard = userDocs
+        .map((userDoc) => {
+          const userData = userDoc.data();
+          const userId = userDoc.id; // user ID is the doc ID
+          return {
+            id: userId,
+            username: userData.username,
+            score: scoresMap[userId] || 0, // Default to 0 if no score exists
+          };
+        })
+        .sort((a, b) => b.score - a.score) // Sort by score in descending order
+        .slice(0, 10); // Get the top 10 users
+  
+      res.status(200).send(leaderboard);
+    } catch (error) {
+      res.status(500).send({ message: "Error fetching leaderboard", error });
+    }
+  };
 
+  const rankThresholds = [
+    { score: 0, rank: 1, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/1.png" },
+    { score: 50, rank: 2, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/2.png" },
+    { score: 150, rank: 3, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/3.png" },
+    { score: 300, rank: 4, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/4.png" },
+    { score: 500, rank: 5, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/5.png" },
+    { score: 750, rank: 6, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/6.png" },
+    { score: 1000, rank: 7, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/7.png" },
+    { score: 1500, rank: 8, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/8.png" },
+    { score: 2000, rank: 9, imageUrl: "https://storage.googleapis.com/achievement_literify/Ranked/9.png" },
+];
+//check kalo udh rankup apa blm
+const checkRankUp = (score) => {
+    let currentRank = rankThresholds[0]; // Default to first rank
+    for (let i = rankThresholds.length - 1; i >= 0; i--) {
+        if (score >= rankThresholds[i].score) {
+            currentRank = rankThresholds[i];
+            break;
+        }
+    }
+    return currentRank;
+};
+
+exports.incrementScore = async (req, res) => {
+    const { userUid, points } = req.body; //userUid = email
+
+    try {
+        // Validate points range
+        const safePoints = Math.max(0, Math.min(points, 20));
+
+        // Initialize scores if it doesn't exist
+        await initializeScoreDoc(userUid);
+
+        // Cheat prevention kek yg diatas
+        await preventCheating(userUid, safePoints);
+
+        // Update score
+        const scoreRef = db.collection("scores").doc(userUid);
+        const snap = await scoreRef.get();
+        const data = snap.exists ? snap.data() : {};
+
+        // Increment score
+        data.score = (data.score || 0) + safePoints;
+
+        // Check rank
+        const newRank = checkRankUp(data.score);
+        const userRank = data.rank || 1;
+
+        if (newRank.rank > userRank) {
+            // kalo user ranked up
+            data.rank = newRank.rank;
+            data.rankUpImageUrl = newRank.imageUrl;
+        }
+
+        // Save updated data
+        await scoreRef.set(data);
+
+        // Response
+        res.status(200).send({
+            message: "Score incremented successfully.",
+            data: {
+                score: data.score,
+                rank: data.rank || userRank,
+                rankUpImageUrl: data.rankUpImageUrl || null,
+            },
+        });
+    } catch (error) {
+        res.status(400).send({ message: error.message });
+    }
+};
+
+
+
+
+  
+
+  
